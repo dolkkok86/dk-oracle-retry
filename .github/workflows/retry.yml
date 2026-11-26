@@ -1,0 +1,37 @@
+# 오라클 무료 ARM VM을 자리 날 때까지 5분마다 만들어 봐요(PC 대신).
+# 공개 저장소라 로그가 공개돼요: 키·설정·네트워크 ID는 비밀값으로만, VM IP는 로그·이슈에서 가려요.
+name: oracle-retry
+on:
+  schedule: [{ cron: '*/5 * * * *' }]
+  workflow_dispatch:
+permissions: { contents: read, issues: write, actions: write }
+concurrency: { group: oracle-retry }
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - name: ~/.oci 준비
+        env:
+          OCI_CONFIG: '${{ secrets.OCI_CONFIG }}'
+          OCI_KEY: '${{ secrets.OCI_KEY }}'
+          DK_NETWORK: '${{ secrets.DK_NETWORK }}'
+        run: |
+          mkdir -p ~/.oci ~/.ssh
+          printf '%s\n' "$OCI_KEY" > ~/.oci/oci_api_key.pem && chmod 600 ~/.oci/oci_api_key.pem
+          printf '%s\n' "$OCI_CONFIG" | sed "s|^key_file=.*|key_file=$HOME/.oci/oci_api_key.pem|" > ~/.oci/config
+          printf '%s\n' "$DK_NETWORK" > ~/.oci/dk-network.json
+          cp oci.mjs retry.mjs ~/.oci/ && cp oracle-dk.key.pub ~/.ssh/
+          echo "${{ github.run_number }}" > ~/.oci/retry-turn.txt   # 크기 번갈기(2코어↔1코어)
+      - name: 시도
+        run: s=0; node ~/.oci/retry.mjs || s=$?; sed -E 's/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/<IP 가림>/g' ~/.oci/retry.log; exit $s
+      - name: 성공하면 알림(이슈) 만들고 이 작업 끄기
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          if grep -q '만들어졌어요' ~/.oci/retry.log; then
+            gh issue create -t "오라클 VM 생성 완료" -b "VM이 만들어졌어요. IP는 공개 저장소라 적지 않았어요: PC에서 node ~/.oci/retry.mjs 를 한 번 돌리면 ~/.oci/dk-vm.json 에 적혀요(이미 있으면 새로 만들지 않아요)."
+            gh workflow disable oracle-retry
+          fi
