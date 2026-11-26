@@ -36,10 +36,13 @@ jobs:
             if [ $i -lt 4 ]; then sleep 45; fi
           done
           sed -E 's/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/<IP 가림>/g' ~/.oci/retry.log; exit $s
-      - name: 성공하면 알림(이슈) 만들고 이 작업 끄기
+      - name: 성공하면 알림(이슈) 만들고 끄기, 아니면 다음 실행 걸기
         env: { GH_TOKEN: '${{ github.token }}' }
         run: |
           if grep -q '만들어졌어요' ~/.oci/retry.log; then
             gh issue create -t "오라클 VM 생성 완료" -b "VM이 만들어졌어요. IP는 공개 저장소라 적지 않았어요: PC에서 node ~/.oci/retry.mjs 를 한 번 돌리면 ~/.oci/dk-vm.json 에 적혀요(이미 있으면 새로 만들지 않아요)."
             gh workflow disable oracle-retry
+          else
+            # GitHub 예약(cron)이 자주 건너뛰어서, 끝날 때 다음 실행을 직접 걸어요. cron은 사슬이 끊겼을 때 다시 잇는 용도.
+            gh workflow run oracle-retry
           fi
