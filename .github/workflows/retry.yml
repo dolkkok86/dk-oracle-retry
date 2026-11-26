@@ -1,4 +1,4 @@
-# 오라클 무료 ARM VM을 자리 날 때까지 약 1분마다 만들어 봐요(PC 대신).
+# 오라클 무료 ARM VM을 자리 날 때까지 약 2분마다 만들어 봐요(PC 대신).
 # 공개 저장소라 로그가 공개돼요: 키·설정·네트워크 ID는 비밀값으로만, VM IP는 로그·이슈에서 가려요.
 name: oracle-retry
 on:
@@ -9,7 +9,7 @@ concurrency: { group: oracle-retry }
 jobs:
   retry:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,15 +25,15 @@ jobs:
           printf '%s\n' "$OCI_CONFIG" | sed "s|^key_file=.*|key_file=$HOME/.oci/oci_api_key.pem|" > ~/.oci/config
           printf '%s\n' "$DK_NETWORK" > ~/.oci/dk-network.json
           cp oci.mjs retry.mjs ~/.oci/ && cp oracle-dk.key.pub ~/.ssh/
-          echo "$(( ${{ github.run_number }} * 4 ))" > ~/.oci/retry-turn.txt   # 크기 번갈기(2코어↔1코어)
+          echo "${{ github.run_number }}" > ~/.oci/retry-turn.txt   # 크기 번갈기(2코어↔1코어)
       - name: 시도
-        # cron 최소가 5분이라, 한 번 실행에 약 1분 간격으로 4번 시도(사실상 1분마다)
+        # 약 2분 간격으로 3번 시도(1분 간격은 오라클이 429로 자주 거절해서). 한 번 시도가 15~20초 걸려요.
         run: |
           s=0
-          for i in 1 2 3 4; do
+          for i in 1 2 3; do
             node ~/.oci/retry.mjs || { s=$?; break; }
             if grep -qE '만들기 시작|만들어졌어요|이미 있어요' ~/.oci/retry.log; then break; fi
-            if [ $i -lt 4 ]; then sleep 45; fi
+            if [ $i -lt 3 ]; then sleep 100; fi
           done
           sed -E 's/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/<IP 가림>/g' ~/.oci/retry.log; exit $s
       - name: 성공하면 알림(이슈) 만들고 끄기, 아니면 다음 실행 걸기
@@ -44,5 +44,6 @@ jobs:
             gh workflow disable oracle-retry
           else
             # GitHub 예약(cron)이 자주 건너뛰어서, 끝날 때 다음 실행을 직접 걸어요. cron은 사슬이 끊겼을 때 다시 잇는 용도.
+            sleep 60   # 다음 실행 준비(약 40초)와 합쳐 실행 사이도 약 2분
             gh workflow run oracle-retry
           fi
